@@ -52,6 +52,7 @@ public class AuthService {
             .build();
 
         user = userRepository.save(user);
+        refreshTokenRepository.deleteByUser(user); // Invalidate any existing tokens (shouldn't be any for new user, but just in case)
         return buildAuthResponse(user);
     }
 
@@ -73,23 +74,9 @@ public class AuthService {
     public AuthResponse refresh(String refreshTokenValue) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(refreshTokenValue)
             .orElseThrow(() -> new AppException("Invalid refresh token", HttpStatus.UNAUTHORIZED));
-
-        if (refreshToken.isExpired()) {
-            refreshTokenRepository.delete(refreshToken);
-            throw new AppException("Refresh token expired. Please login again.", HttpStatus.UNAUTHORIZED);
-        }
-
         User user = refreshToken.getUser();
-        String newAccessToken = jwtUtil.generateToken(user);
-
-        return AuthResponse.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(refreshTokenValue) // same refresh token can be reused until it expires
-                .userId(user.getId())
-                .name(user.getName())
-                .email(user.getEmail())
-                .role(user.getRole())
-                .build();
+        refreshTokenRepository.delete(refreshToken); 
+        return buildAuthResponse(user);
     }
 
     @Transactional
@@ -114,6 +101,7 @@ public class AuthService {
     }
 
     private String createRefreshToken(User user) {
+        refreshTokenRepository.deleteByUser(user); // Invalidate old tokens on new login
         String tokenValue = UUID.randomUUID().toString();
         LocalDateTime expiresAt = LocalDateTime.now()
                 .plusSeconds(refreshTokenExpiryMs / 1000);
